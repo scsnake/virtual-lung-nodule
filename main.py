@@ -30,53 +30,50 @@ def circle_levelset(shape, center, sqradius, scalerow=1.0):
 
 
 class Crop_arr:
-    def __init__(self, arr, x0=0, y0=0, z0=0, x1=1, y1=1, z1=1 crop = False
+    def __init__(self, arr, corner1=None, corner2=None, crop=False):
 
-    ):
-    self.x0 = x0
-    self.y0 = y0
-    self.z0 = z0
-    self.x1 = x1
-    self.y1 = y1
-    self.z1 = z1
+        self.corner1 = (0, 0, 0) if corner1 is None else corner1
+        self.corner2 = tuple(np.array(arr.shape)) if corner2 is None else corner2
 
-    if not crop or x0 is None or y0 is None or z0 is None or x1 is None or y1 is None or z1 is None:
-        self.arr = arr
-    else:
-        self.arr = arr[x0:x1, y0:y1, z0:z1]
+        if not crop:
+            self.arr = arr
+        else:
+            self.arr = arr[self.indexFrom(corner1, corner2)]
 
+    def indexFrom(self, corner1, corner2):
+        return tuple(slice(i, j) for i, j in zip(corner1, corner2))
 
-def bounds(self):
-    return self.x0, self.y0, self.x1, self.y1, self.z0, self.z1
+    def indexedArr(self, corner1=None, corner2=None):
+        if corner1 is None:
+            corner1 = self.corner1
+        if corner2 is None:
+            corner2 = self.corner2
+        return self.arr[self.indexFrom(corner1, corner2)]
 
+    def bounds(self):
+        return self.corner1 + self.corner2
 
-def image(self):
-    return ((self.arr * 101).astype(np.uint8))
+    def image(self):
+        return ((self.arr * 101).astype(np.uint8))
 
+    def crop(self):
+        coords = np.argwhere(self.arr)
 
-def crop(self):
-    coords = np.argwhere(self.arr)
+        # Bounding box of non-black pixels.
+        try:
+            new_corner1 = coords.min(axis=0)
+            new_corner2 = coords.max(axis=0) + 1  # slices are exclusive at the top
+        except:
+            return
 
-    # Bounding box of non-black pixels.
-    try:
-        x0, y0, z0 = coords.min(axis=0)
-        x1, y1, z1 = coords.max(axis=0) + 1  # slices are exclusive at the top
-    except:
-        return
+        self.arr = self.indexedArr(new_corner1, new_corner2)
+        self.corner1 = tuple(np.array(self.corner1) + np.array(new_corner1))
+        self.corner2 = tuple(np.array(self.corner1) + np.array(new_corner2) - np.array(new_corner1))
 
-    self.arr = self.arr[x0:x1, y0:y1, z0:z1]
-    self.x0 += x0
-    self.y0 += y0
-    self.y0 += z0
-    self.x1 = self.x0 + x1 - x0
-    self.y1 = self.y0 + y1 - y0
-    self.z1 = self.z0 + z1 - z0
-
-
-def new_image(self):
-    ret = np.zeros((self.x1, self.y1, self.z1), np.uint8)
-    ret[self.x0:self.x1, self.y0:self.y1, self.z0:self.z1] = self.arr
-    return ((ret * 101).astype(np.uint8))
+    def new_image(self, dim=None):
+        ret = np.zeros(self.corner2 if dim is None else dim, np.uint8)
+        ret[self.indexFrom(self.corner1, self.corner2)] = self.arr
+        return ((ret * 101).astype(np.uint8))
 
 
 class Morph3D:
@@ -88,9 +85,13 @@ class Morph3D:
         self.balloon = balloon
         self.img = img
         self.seed = seed
-        self.gI = morphsnakes.gborders(img, alpha=alpha, sigma=sigma)
-        self.mgac = morphsnakes.MorphGAC(self.gI, smoothing=smoothing, threshold=threshold, balloon=balloon)
-        self.last_levelset = self.mgac.levelset = circle_levelset(img.shape, seed, balloon)
+        # self.gI = morphsnakes.gborders(img, alpha=alpha, sigma=sigma)
+        # self.mgac = morphsnakes.MorphGAC(self.gI, smoothing=smoothing, threshold=threshold, balloon=balloon)
+        # self.last_levelset = self.mgac.levelset = circle_levelset(img.shape, seed, balloon)
+
+        self.macwe = morphsnakes.MorphACWE(img, smoothing=1, lambda1=1, lambda2=2)
+        self.last_levelset = self.macwe.levelset = circle_levelset(img.shape, seed, balloon)
+
         self.last_crop_levelset = Crop_arr(self.last_levelset)
         self.iter_ind = 0
         self.max_balloon = balloon * 2
@@ -98,6 +99,14 @@ class Morph3D:
     def step(self, iters=1):
         balloon = self.balloon
         img = self.img
+
+        # self.mgac.step()
+        # self.last_levelset = self.mgac.levelset
+
+        # self.macwe.step()
+        # self.last_levelset = self.macwe.levelset
+        # return
+
         # Coordinates of non-black pixels.
         coords = np.argwhere(self.last_levelset)
 
@@ -110,7 +119,7 @@ class Morph3D:
         bounds = [x0, y0, z0, x1, y1, z1]
         crop_bounds = []
         for i, c in enumerate(bounds):
-            c += balloon * (iters + 1) if i > 1 else balloon * (-1) * (iters + 1)
+            c += balloon * (iters + 1) if i > 2 else balloon * (-1) * (iters + 1)
             if i < 3:
                 c = 0 if c < 0 else c
             else:
@@ -120,14 +129,18 @@ class Morph3D:
             crop_bounds.append(c)
         # print self.last_crop_levelset.shape
         (x0, y0, z0, x1, y1, z1) = crop_bounds = tuple(crop_bounds)
-        gI = morphsnakes.gborders(img[x0:x1, y0:y1, z0:z1], alpha=self.alpha, sigma=self.sigma)
-        balloon = self.balloon * random.uniform(0.1, 1.2)
-        mgac = morphsnakes.MorphGAC(gI, smoothing=self.smoothing, threshold=self.threshold, balloon=balloon)
-        mgac.levelset = self.last_levelset[x0:x1, y0:y1, z0:z1]
+        # gI = morphsnakes.gborders(img[x0:x1, y0:y1, z0:z1], alpha=self.alpha, sigma=self.sigma)
+        # balloon = self.balloon
+
+        macwe = morphsnakes.MorphACWE(img[x0:x1, y0:y1, z0:z1], smoothing=1, lambda1=1, lambda2=2)
+        macwe.levelset = self.last_levelset[x0:x1, y0:y1, z0:z1]
+        # balloon = self.balloon * random.uniform(0.5, 1.2)
+        # mgac = morphsnakes.MorphGAC(gI, smoothing=self.smoothing, threshold=self.threshold, balloon=balloon)
+        # mgac.levelset = self.last_levelset[x0:x1, y0:y1, z0:z1]
         for _ in range(iters):
-            mgac.step()
-        self.last_levelset[x0:x1, y0:y1, z0:z1] = mgac.levelset
-        self.last_crop_levelset = Crop_arr(mgac.levelset, x0, y0, z0, x1, y1, z1)
+            macwe.step()
+        self.last_levelset[x0:x1, y0:y1, z0:z1] = macwe.levelset
+        self.last_crop_levelset = Crop_arr(macwe.levelset, (x0, y0, z0), (x1, y1, z1))
 
         self.iter_ind += iters
         # self.balloon += iters
@@ -135,20 +148,35 @@ class Morph3D:
         #     self.balloon = self.max_balloon
 
     def step_max(self):
-
+        i = 0
+        q = []
+        q.append(self.last_crop_levelset.indexedArr().sum())
         while 1:
+            i += 1
+            if i > 100:
+                break
             self.step()
+            q.append(self.last_crop_levelset.indexedArr().sum())
 
+            if int(q[-1]) == 0:
+                return
+
+            if i > 2 and (abs((q[-1] - q[-2]) * 1.0 / q[-2]) < 0.02 or abs((q[-1] - q[-3]) * 1.0 / q[-3]) < 0.05):
+                return self.last_crop_levelset
+
+            if i > 4 and q[-1] < q[-2] < q[-3] < q[-4]:
+                return
 
 def nodule_segmentation(CtVolume, nodule_coord):
-    alpha = 1000
-    sigma = 5.48
-    smoothing = 1
-    threshold = 0.31
-    balloon = 5
-    gI = morphsnakes.gborders(CtVolume.data, alpha=alpha, sigma=sigma)
-    mgac = morphsnakes.MorphGAC(gI, smoothing=smoothing, threshold=threshold, balloon=balloon)
-    last_levelset = mgac.levelset = circle_levelset(img.shape, nodule_coord, balloon)
+    morph = Morph3D(CtVolume.data, nodule_coord)
+    mask=None
+    for _ in range(3):
+        nodule = morph.step_max()
+        if nodule is not None:
+            mask = nodule.new_image(CtVolume.data.shape).astype(np.bool)
+            break
+
+    return mask
 
 
 class IndexTracker(object):

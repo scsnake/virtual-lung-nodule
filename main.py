@@ -127,7 +127,7 @@ class Morph3D:
                 c = s if c > s else c
 
             crop_bounds.append(c)
-        # print self.last_crop_levelset.shape
+        # print(self.last_crop_levelset.shape)
         (x0, y0, z0, x1, y1, z1) = crop_bounds = tuple(crop_bounds)
         # gI = morphsnakes.gborders(img[x0:x1, y0:y1, z0:z1], alpha=self.alpha, sigma=self.sigma)
         # balloon = self.balloon
@@ -316,8 +316,7 @@ class CtVolume(object):
         while 1:
             tried += 1
             if tried > max_try:
-                print
-                'Failed to generate negative volume!'
+                print('Failed to generate negative volume!')
                 return None
 
             crop = self.crop(volume, center_pixel_coord, shape, padding)
@@ -325,8 +324,7 @@ class CtVolume(object):
             if not self.nodule_in_VOI(crop):
                 return crop
             else:
-                print
-                'crop contains nodule.'
+                print('crop contains nodule.')
 
     def negative_background_sampler(self, shape, padding=None):
         lung_HU = (-900, -500)
@@ -356,7 +354,7 @@ class CtVolume(object):
             # ViewCT(crop.data)
             if self.nodule_in_VOI(crop):
                 continue
-            # print tried, center_pixel_coord
+            # print(tried, center_pixel_coord)
             return crop
         return None
 
@@ -509,8 +507,8 @@ class Nodule(CtVolume):
             self.spacing = (min_spaicng,) * len(self.spacing)
 
         self.masked_nodule_data = None
-        # print self.origin, self.spacing
-        # print origin, spacing
+        # print(self.origin, self.spacing)
+        # print(origin, spacing)
 
     def data_mask_match(self):
         try:
@@ -544,10 +542,8 @@ class Nodule(CtVolume):
         try:
             ma = np.ma.masked_array(data[x0:x1, y0:y1, z0:z1], m[x0:x1, y0:y1, z0:z1])
         except:
-            print
-            data
-            print
-            mask
+            print(data)
+            print(mask)
             sys.exit(1)
         # self.masked_nodule_data = ma
         return ma
@@ -560,7 +556,7 @@ class Nodule(CtVolume):
             d, m = np.copy(nodule.data), np.copy(nodule.mask)
 
         angle = random.uniform(0.0, 360.0)
-        axes = tuple(random.sample(xrange(3), 2))
+        axes = tuple(random.sample(range(3), 2))
         d = interpolation.rotate(d, angle, axes, cval=-1024)
 
         padding = -4.0 if m.dtype != np.bool else False
@@ -783,7 +779,7 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
 
         while 1:
             crop = lung.generate_negative_volume()
-            # print 'crop'
+            # print('crop')
             if crop is None:
                 continue
 
@@ -798,18 +794,16 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
                         break
                     else:
                         id = str(uuid.uuid4())
-                        print
-                        'Create new uid: ' + id
+                        print('Create new uid: ' + id)
                 crop.save_mhd(output_path)
                 imsave(os.path.join(output_dir_nolung, 'thumbnail', file_id + '-' + id + '_tn.png'),
                        crop.apply_window(crop.data[int(crop.data.shape[0] / 2), :, :]))
                 nolung_count += 1
-                print
-                'Create no_lung #%d from lung %s' % (nolung_count, file_id)
+                print('Create no_lung #%d from lung %s' % (nolung_count, file_id))
             elif has_lung > 0.1:
 
                 if lung_nodule_count < lung_nodule_each and lung_no_nodule_count < lung_no_nodule_each:
-                    token1, token2 = tuple(random.sample(xrange(2), 2))
+                    token1, token2 = tuple(random.sample(range(2), 2))
                 else:
                     token1 = token2 = True
 
@@ -849,8 +843,7 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
                            crop.apply_window(crop.data[centroid_z, :, :]))
 
                     lung_no_nodule_count += 1
-                    print
-                    'Create lung_no_nodule #%d from lung %s' % (lung_no_nodule_count, file_id)
+                    print('Create lung_no_nodule #%d from lung %s' % (lung_no_nodule_count, file_id))
                 elif token1 and lung_nodule_count < lung_nodule_each:
 
                     # if ~has_lung:
@@ -866,8 +859,7 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
                         nd = Nodule(nd_file,
                                     os.path.join(nodule_dir, nd_id + '_outputTumorImage.mha'))
                     except:
-                        print
-                        'Nodule load error!'
+                        print('Nodule load error!')
                         continue
 
                     if nodule_rotate:
@@ -877,23 +869,20 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
 
                     # nd.noise_random()
 
-                    print
-                    'start blending...'
+                    print('start blending...')
 
                     for try_blending in range(3):
                         output, thumbnail = nodule_blender(nd, crop)
 
                         if output is None:
-                            print
-                            'retry blending with smaller nodule ...'
+                            print('retry blending with smaller nodule ...')
                             output, thumbnail = nodule_blender(nd.zoom_random(zoom_range=(0.5, 0.7)), crop)
                             continue
                         else:
                             break
 
                     if output is None:
-                        print
-                        'failed blending...'
+                        print('failed blending...')
                         continue
 
                     while 1:
@@ -902,16 +891,14 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
                             break
                         else:
                             id = str(uuid.uuid4())
-                            print
-                            'Create new uid: ' + id
+                            print('Create new uid: ' + id)
 
                     output.save_mhd(output_path,
                                     os.path.join(output_dir_lung_nodule, file_id + '-' + id + '_mask.mhd'))
                     imsave(os.path.join(output_dir_lung_nodule, 'thumbnail', file_id + '-' + id + '_tn.png'),
                            thumbnail)
                     lung_nodule_count += 1
-                    print
-                    'Create lung_nodule #%d from lung %s and nodule %s' % (lung_nodule_count, file_id, nd_id)
+                    print('Create lung_nodule #%d from lung %s and nodule %s' % (lung_nodule_count, file_id, nd_id))
 
 
 
@@ -956,8 +943,8 @@ if __name__ == '__main__':
     #     if s1[1]==s2[1] and s1[2]==s2[2]:
     #         continue
     #     else:
-    #         print s1
-    #         print s2
+    #         print(s1)
+    #         print(s2)
 
     # reset()
     start_time = time.time()
@@ -968,8 +955,7 @@ if __name__ == '__main__':
                  r'./lung_no_nodule/',
                  r'./lung_nodule/',
                  100, 100, 100)
-    print
-    time.time() - start_time
+    print(time.time() - start_time)
     # d = CtVolume()
 
     # d.load_image_data(r'/data/LKDS/allset/LKDS-00024.mhd')

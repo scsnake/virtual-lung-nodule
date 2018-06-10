@@ -167,9 +167,10 @@ class Morph3D:
             if i > 4 and q[-1] < q[-2] < q[-3] < q[-4]:
                 return
 
+
 def nodule_segmentation(CtVolume, nodule_coord):
     morph = Morph3D(CtVolume.data, nodule_coord)
-    mask=None
+    mask = None
     for _ in range(3):
         nodule = morph.step_max()
         if nodule is not None:
@@ -238,12 +239,12 @@ class CtVolume(object):
             return 1.0 * np.count_nonzero(self.lung_mask) / self.data.size
 
     def load_nodule_info(self, filename):
-        with open(filename, 'rb') as f:
+        with open(filename, 'r') as f:
             r = csv.reader(f, delimiter=',', quotechar='"')
             for row in r:
                 if row[0] == self.id:
                     nodule = {}
-                    nodule['coord'] = [float(row[3]), float(row[2]), float(row[2])]
+                    nodule['coord'] = [float(row[3]), float(row[2]), float(row[1])]
                     nodule['diameter'] = float(row[4])
                     self.nodules.append(nodule)
 
@@ -405,13 +406,13 @@ class CtVolume(object):
         '''
         ret = []
         for i in range(3):
-            ret[i] = self.origin[i] + self.spacing[i] * 1.0 * coord[i]
+            ret.append(self.origin[i] + self.spacing[i] * 1.0 * coord[i])
         return ret
 
     def absolute_to_pixel_coord(self, coord):
         ret = []
         for i in range(3):
-            ret[i] = np.rint((coord[i] - self.origin[i]) * 1.0 / self.spacing[i])
+            ret.append(np.rint((coord[i] - self.origin[i]) * 1.0 / self.spacing[i]).astype(np.uint8))
 
         return ret
 
@@ -426,6 +427,8 @@ class CtVolume(object):
         return ((data - (wl - ww)) * 256.0 / (2 * ww)).astype(np.uint8)
 
     def crop(self, volume, center_pixel_coord, shape, padding):
+        if type(shape) is int:
+            shape = (shape,) * 3
 
         ret = np.full(shape, padding)
         ret_mask = np.full(shape, False)
@@ -458,15 +461,17 @@ class CtVolume(object):
                 r1[i, 1] = i2 + 1
                 r2[i, 1] = shape[i]
 
-            origin.append(volume.origin[i] - (r1[i, 0] - r2[i, 0]) * volume.spacing[i])
+            origin.append(volume.origin[i] + (r1[i, 0] - r2[i, 0]) * volume.spacing[i])
 
         ret[r2[0, 0]:r2[0, 1], r2[1, 0]:r2[1, 1], r2[2, 0]:r2[2, 1]] = \
             volume.data[r1[0, 0]:r1[0, 1], r1[1, 0]:r1[1, 1], r1[2, 0]:r1[2, 1]]
+        if volume.lung_mask:
+            ret_mask[r2[0, 0]:r2[0, 1], r2[1, 0]:r2[1, 1], r2[2, 0]:r2[2, 1]] = \
+                volume.lung_mask[r1[0, 0]:r1[0, 1], r1[1, 0]:r1[1, 1], r1[2, 0]:r1[2, 1]]
 
-        ret_mask[r2[0, 0]:r2[0, 1], r2[1, 0]:r2[1, 1], r2[2, 0]:r2[2, 1]] = \
-            volume.lung_mask[r1[0, 0]:r1[0, 1], r1[1, 0]:r1[1, 1], r1[2, 0]:r1[2, 1]]
-
-        return CtVolume(ret, origin, volume.spacing, ret_mask)
+            return CtVolume(ret, origin, volume.spacing, ret_mask)
+        else:
+            return CtVolume(ret, origin, volume.spacing)
 
     def save_mhd(self, data_path, mask_path=None):
         mhd = sitk.GetImageFromArray(self.data)
@@ -772,9 +777,34 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
 
         lung = CtVolume()
         lung.load_image_data(lung_file)
-        lung.load_lung_mask(os.path.join('.', 'result', file_id + '_ma.mhd'))
+        # lung.load_lung_mask(os.path.join('.', 'result', file_id + '_ma.mhd'))
         lung.load_nodule_info(dataset_nodule_csv)
 
+        nd_ind = 0
+
+        for nd in lung.nodules:
+            coord = nd['coord']
+            dia = int(np.rint(nd['diameter']))
+
+            if dia > 20:
+                continue
+            coord2 = lung.absolute_to_pixel_coord(coord)
+            crop = lung.crop(lung, coord2, dia + 20, -1024)
+            # ViewCT(crop)
+            rg = Morph3D(crop.data, crop.absolute_to_pixel_coord(coord), balloon=int(dia / 4)).step_max()
+
+            if rg:
+                nd_ind += 1
+                crop.lung_mask = rg.new_image(crop.data.shape).astype(np.bool)
+
+                crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '.mhd',
+                              './lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_ma.mhd')
+                crop.data = crop.masked_lung().filled(-1024)
+                crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_se.mhd')
+                crop.data = crop.apply_window()
+                crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_lu.mhd')
+
+        continue
         nolung_count = lung_no_nodule_count = lung_nodule_count = 0
 
         while 1:

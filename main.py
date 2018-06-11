@@ -222,12 +222,12 @@ def ViewCT(arr):
 class CtVolume(object):
     def __init__(self, data=None, origin=None, spacing=None, lung_mask=None):
         self.window = (-600, 1500)
-        self.data = data
+        self.data = np.array(data)
         self.gray = None
         self.lung_mask = lung_mask.astype(np.bool) if lung_mask is not None else None
         self.dimension_normalized = None
-        self.origin = origin
-        self.spacing = spacing
+        self.origin = np.array(origin)
+        self.spacing = np.array(spacing)
         self.nodules = []
         self.virtual_nodules_coord = []  # pixel coordinate
 
@@ -404,17 +404,11 @@ class CtVolume(object):
         :param coord: zero-based pixel coord x, y, z (slice number)
         :return:
         '''
-        ret = []
-        for i in range(3):
-            ret.append(self.origin[i] + self.spacing[i] * 1.0 * coord[i])
-        return ret
+        return self.origin + self.spacing * np.array(coord)
+
 
     def absolute_to_pixel_coord(self, coord):
-        ret = []
-        for i in range(3):
-            ret.append(np.rint((coord[i] - self.origin[i]) * 1.0 / self.spacing[i]).astype(np.uint8))
-
-        return ret
+        return np.floor((np.array(coord) - self.origin) / self.spacing +0.5).astype(np.uint8)
 
     def apply_window(self, data=None, window=None):
         if data is None:
@@ -785,7 +779,9 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
 
 
         for nd in lung.nodules:
+
             coord = nd['coord']
+
             dia = int(np.rint(nd['diameter']))
 
             if dia > 20:
@@ -985,7 +981,7 @@ if __name__ == '__main__':
     # reset()
     start_time = time.time()
     data_prepare(r'/data/LKDS/allset/',
-                 r'/data/LKDS/csv/annotations_reviewed_sorted.csv',
+                 r'/data/LKDS/csv/annotations_all.csv',
                  r'/home/scsnake/Downloads/LSTK/',
                  r'./no_lung/',
                  r'./lung_no_nodule/',

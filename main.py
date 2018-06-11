@@ -770,7 +770,7 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
     lung_nodule_each = int(output_lung_nodule_total / len(dataset_files))
 
     nolung_each = lung_no_nodule_each = lung_nodule_each = 100
-
+    nd_ind = 0
     for lung_file in dataset_files:
         img_name = os.path.basename(lung_file)
         file_id, _ = os.path.splitext(img_name)
@@ -780,7 +780,9 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
         # lung.load_lung_mask(os.path.join('.', 'result', file_id + '_ma.mhd'))
         lung.load_nodule_info(dataset_nodule_csv)
 
-        nd_ind = 0
+        print(lung.id + ': ' + str(len(lung.nodules)))
+        print(lung.nodules)
+
 
         for nd in lung.nodules:
             coord = nd['coord']
@@ -791,18 +793,22 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
             coord2 = lung.absolute_to_pixel_coord(coord)
             crop = lung.crop(lung, coord2, dia + 20, -1024)
             # ViewCT(crop)
-            rg = Morph3D(crop.data, crop.absolute_to_pixel_coord(coord), balloon=int(dia / 4)).step_max()
+            for _ in range(10):
+                ballon_size = 5 if 5 > int(dia / 3.0) else int(dia / 3.0)
+                rg = Morph3D(crop.data, crop.absolute_to_pixel_coord(coord), balloon=ballon_size).step_max()
 
-            if rg:
-                nd_ind += 1
-                crop.lung_mask = rg.new_image(crop.data.shape).astype(np.bool)
+                if rg:
+                    nd_ind += 1
+                    print('saving nodule #' + str(nd_ind))
+                    crop.lung_mask = rg.new_image(crop.data.shape).astype(np.bool)
 
-                crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '.mhd',
-                              './lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_ma.mhd')
-                crop.data = crop.masked_lung().filled(-1024)
-                crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_se.mhd')
-                crop.data = crop.apply_window()
-                crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_lu.mhd')
+                    crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '.mhd',
+                                  './lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_ma.mhd')
+                    crop.data = crop.masked_lung().filled(-1024)
+                    crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_se.mhd')
+                    crop.data = crop.apply_window()
+                    crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_lu.mhd')
+                    break
 
         continue
         nolung_count = lung_no_nodule_count = lung_nodule_count = 0

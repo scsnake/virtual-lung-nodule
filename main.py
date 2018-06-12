@@ -369,8 +369,9 @@ class CtVolume(object):
         origin = np.array(list(reversed(itkimage.GetOrigin())))
 
         # Read the spacing along each dimension
-        spacing = np.array(list(reversed(itkimage.GetSpacing())))
-
+        spacing = np.array(itkimage.GetSpacing()).reshape((1, 3))
+        direction = np.array(itkimage.GetDirection()).reshape((3, 3))
+        spacing = np.dot(spacing, direction).reshape((3,))[::-1]
         return ct_scan, origin, spacing
 
     def load_dicom(self, dirname):
@@ -389,6 +390,9 @@ class CtVolume(object):
         spacing = np.array([f.SliceThickness, f.PixelSpacing[1], f.PixelSpacing[0]])
         origin = reversed(f[0x20, 0x32].value)  # image position
 
+        spacing = np.dot(spacing[::-1].reshape((1, 3)),
+                         np.append(np.array(f.ImageOrientationPatient), [0, 0, 1]).reshape((3, 3))).reshape((3,))[::-1]
+
         for ind, path in enumerate(dcm_files):
             f = dicom.read_file(path)
 
@@ -406,9 +410,8 @@ class CtVolume(object):
         '''
         return self.origin + self.spacing * np.array(coord)
 
-
     def absolute_to_pixel_coord(self, coord):
-        return np.floor((np.array(coord) - self.origin) / self.spacing +0.5).astype(np.uint8)
+        return np.abs(np.floor((np.array(coord) - self.origin) / self.spacing + 0.5)).astype(np.uint16)
 
     def apply_window(self, data=None, window=None):
         if data is None:
@@ -418,7 +421,7 @@ class CtVolume(object):
 
         data[data < wl - ww] = wl - ww
         data[data >= wl + ww] = wl + ww - 1
-        return ((data - (wl - ww)) * 256.0 / (2 * ww)).astype(np.uint8)
+        return ((data - (wl - ww)) * 256.0 / (2 * ww)).astype(np.uint32)
 
     def crop(self, volume, center_pixel_coord, shape, padding):
         if type(shape) is int:
@@ -766,6 +769,9 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
     nolung_each = lung_no_nodule_each = lung_nodule_each = 100
     nd_ind = 0
     for lung_file in dataset_files:
+        if not '00390' in lung_file:
+            continue
+
         img_name = os.path.basename(lung_file)
         file_id, _ = os.path.splitext(img_name)
 
@@ -777,17 +783,17 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
         print(lung.id + ': ' + str(len(lung.nodules)))
         print(lung.nodules)
 
-
         for nd in lung.nodules:
 
             coord = nd['coord']
 
             dia = int(np.rint(nd['diameter']))
 
-            if dia > 20:
-                continue
+            # if dia > 20:
+            #     continue
             coord2 = lung.absolute_to_pixel_coord(coord)
             crop = lung.crop(lung, coord2, dia + 20, -1024)
+            # print(coord2)
             # ViewCT(crop)
             for _ in range(10):
                 ballon_size = 5 if 5 > int(dia / 3.0) else int(dia / 3.0)
@@ -798,7 +804,7 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
                     print('saving nodule #' + str(nd_ind))
                     crop.lung_mask = rg.new_image(crop.data.shape).astype(np.bool)
 
-                    crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '.mhd',
+                    crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_' + str(int(dia)) + '.mhd',
                                   './lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_ma.mhd')
                     crop.data = crop.masked_lung().filled(-1024)
                     crop.save_mhd('./lung_nodule_segmentation/' + str(nd_ind).zfill(3) + '_se.mhd')

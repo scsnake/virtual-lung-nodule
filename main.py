@@ -18,8 +18,6 @@ import skimage as sk
 from scipy.misc import imsave
 from scipy.ndimage import zoom, interpolation, filters
 
-import morphsnakes
-
 
 def circle_levelset(shape, center, sqradius, scalerow=1.0):
     """Build a binary function with a circle as the 0.5-levelset."""
@@ -78,6 +76,7 @@ class Crop_arr:
 
 class Morph3D:
     def __init__(self, img, seed=(0, 0, 0), alpha=1000, sigma=5.48, smoothing=1, threshold=0.31, balloon=5):
+        import morphsnakes
         self.alpha = alpha
         self.sigma = sigma
         self.smoothing = smoothing
@@ -159,9 +158,9 @@ class Morph3D:
             self.step()
             q.append(self.last_crop_levelset.indexedArr().sum())
 
-            if estimated_diameter and i>2 and \
-                    ((q[-1]>q[-2] and (q[-1]*8/np.pi)**(1/3)/estimated_diameter>1.2) or \
-                     (q[-1] < q[-2] and (q[-1] * 8 / np.pi) ** (1 / 3) / estimated_diameter < 0.8 )):
+            if estimated_diameter and i > 2 and \
+                    ((q[-1] > q[-2] and (q[-1] * 8 / np.pi) ** (1 / 3) / estimated_diameter > 1.2) or \
+                     (q[-1] < q[-2] and (q[-1] * 8 / np.pi) ** (1 / 3) / estimated_diameter < 0.8)):
                 return self.last_crop_levelset
 
             if int(q[-1]) == 0:
@@ -382,7 +381,7 @@ class CtVolume(object):
 
     def load_dicom(self, dirname):
 
-        dcm_files = glob.glob(os.path.join(dirname, '[!_]*.dcm'))
+        dcm_files = sorted(glob.glob(os.path.join(dirname, '[!_]*.dcm')))
         if len(dcm_files) == 0:
             dcm_files = glob.glob(os.path.join(dirname, '[!_]*'))
         assert len(dcm_files) > 0
@@ -394,7 +393,7 @@ class CtVolume(object):
 
         data = np.zeros((len(dcm_files), f.Columns, f.Rows), np.int16)
         spacing = np.array([f.SliceThickness, f.PixelSpacing[1], f.PixelSpacing[0]])
-        origin = reversed(f[0x20, 0x32].value)  # image position
+        origin = np.array(f[0x20, 0x32].value)[::-1]  # image position
 
         spacing = np.dot(spacing[::-1].reshape((1, 3)),
                          np.append(np.array(f.ImageOrientationPatient), [0, 0, 1]).reshape((3, 3))).reshape(3)[::-1]
@@ -416,8 +415,11 @@ class CtVolume(object):
         '''
         return self.origin + self.spacing * np.array(coord)
 
-    def absolute_to_pixel_coord(self, coord):
-        return np.abs(np.floor((np.array(coord) - self.origin) / self.spacing + 0.5)).astype(np.uint16)
+    def absolute_to_pixel_coord(self, coord, return_float=False):
+        if not return_float:
+            return np.abs(np.floor((np.array(coord) - self.origin) / self.spacing + 0.5)).astype(np.uint16)
+        else:
+            return (np.array(coord) - self.origin) / self.spacing
 
     def apply_window(self, data=None, window=None):
         if data is None:
@@ -755,8 +757,6 @@ def nodule_blender(nodule_volume, background_volume):
     return None, None
 
 
-
-
 def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
                  output_dir_nolung, output_dir_lung_no_nodule, output_dir_lung_nodule,
                  output_nolung_total, output_lung_no_nodule_total, output_lung_nodule_total,
@@ -804,27 +804,30 @@ def data_prepare(dataset_dir, dataset_nodule_csv, nodule_dir,
             crop = lung.crop(lung, coord2, dia + 20, -1024)
             # print(coord2)
             # ViewCT(crop)
-            ballon_size = 5 if dia > 8 else int(dia/1.5)
-            rg_success=False
+            ballon_size = 5 if dia > 8 else int(dia / 1.5)
+            rg_success = False
             for _ in range(10):
-                random_int = random.randint(-2,2) if dia>8 else random.randint(-1,1)
-                rg = Morph3D(crop.data, crop.absolute_to_pixel_coord(coord), balloon=ballon_size+random_int).step_max(dia)
+                random_int = random.randint(-2, 2) if dia > 8 else random.randint(-1, 1)
+                rg = Morph3D(crop.data, crop.absolute_to_pixel_coord(coord), balloon=ballon_size + random_int).step_max(
+                    dia)
 
-                if rg and 0.4<(rg.indexedArr().sum()*8/np.pi)**(1/3)/dia<1.5:
+                if rg and 0.4 < (rg.indexedArr().sum() * 8 / np.pi) ** (1 / 3) / dia < 1.5:
                     print('saving nodule #' + str(nd_ind))
                     crop.lung_mask = rg.new_image(crop.data.shape).astype(np.bool)
 
-                    crop.save_mhd('./lung_nodule_segmentation/'+ str(lung.id) + str(nd_ind).zfill(3) + '_' + str(int(dia)) + '.mhd',
-                                  './lung_nodule_segmentation/'+ str(lung.id)  + str(nd_ind).zfill(3) + '_ma.mhd')
+                    crop.save_mhd('./lung_nodule_segmentation/' + str(lung.id) + str(nd_ind).zfill(3) + '_' + str(
+                        int(dia)) + '.mhd',
+                                  './lung_nodule_segmentation/' + str(lung.id) + str(nd_ind).zfill(3) + '_ma.mhd')
                     crop.data = crop.masked_lung().filled(-1024)
-                    crop.save_mhd('./lung_nodule_segmentation/'+ str(lung.id)  + str(nd_ind).zfill(3) + '_se.mhd')
+                    crop.save_mhd('./lung_nodule_segmentation/' + str(lung.id) + str(nd_ind).zfill(3) + '_se.mhd')
                     crop.data = crop.apply_window()
-                    crop.save_mhd('./lung_nodule_segmentation/'+ str(lung.id)  + str(nd_ind).zfill(3) + '_lu.mhd')
-                    rg_success=True
+                    crop.save_mhd('./lung_nodule_segmentation/' + str(lung.id) + str(nd_ind).zfill(3) + '_lu.mhd')
+                    rg_success = True
                     break
 
             if not rg_success:
-                print('Region grow error for lung id %s, #%s nodule diameter %s' % (str(lung.id), str(nd_ind), str(dia)))
+                print(
+                    'Region grow error for lung id %s, #%s nodule diameter %s' % (str(lung.id), str(nd_ind), str(dia)))
 
         continue
         nolung_count = lung_no_nodule_count = lung_nodule_count = 0
